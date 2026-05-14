@@ -12,14 +12,56 @@ library(terra)
 # -----------------------------
 
 SYNOPTIC_TOKEN <- Sys.getenv("SYNOPTIC_TOKEN")
-source("scripts/update_forecast_cache.R")
 
 # -----------------------------
-# Load cached forecast
+# Remote forecast cache
 # -----------------------------
 
-forecast_cache <- readRDS("cache/forecast_cache.rds")
-forecast_qpf <- terra::rast(forecast_cache$qpf_file)
+GITHUB_OWNER <- "jeremyash"
+GITHUB_REPO  <- "garden_rainfall"
+CACHE_BRANCH <- "cache-data"
+
+REMOTE_CACHE_RDS <- paste0(
+  "https://raw.githubusercontent.com/",
+  GITHUB_OWNER, "/", GITHUB_REPO, "/",
+  CACHE_BRANCH, "/cache/forecast_cache.rds"
+)
+
+REMOTE_CACHE_TIF <- paste0(
+  "https://raw.githubusercontent.com/",
+  GITHUB_OWNER, "/", GITHUB_REPO, "/",
+  CACHE_BRANCH, "/cache/forecast_qpf_ll.tif"
+)
+
+download_remote_cache <- function() {
+  
+  rds_tmp <- tempfile(fileext = ".rds")
+  tif_tmp <- tempfile(fileext = ".tif")
+  
+  download.file(
+    REMOTE_CACHE_RDS,
+    rds_tmp,
+    mode = "wb",
+    quiet = TRUE
+  )
+  
+  download.file(
+    REMOTE_CACHE_TIF,
+    tif_tmp,
+    mode = "wb",
+    quiet = TRUE
+  )
+  
+  list(
+    cache = readRDS(rds_tmp),
+    qpf = terra::rast(tif_tmp)
+  )
+}
+
+remote_forecast <- download_remote_cache()
+
+forecast_cache <- remote_forecast$cache
+forecast_qpf <- remote_forecast$qpf
 
 GARDEN_NAME <- forecast_cache$garden$name
 GARDEN_LAT  <- forecast_cache$garden$lat
