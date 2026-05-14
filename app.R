@@ -28,7 +28,7 @@ garden_icon <- awesomeIcons(
 rain_bins <- c(-Inf, 0, 0.01, 0.10, 0.25, 0.50, 1, Inf)
 
 rain_colors <- c(
-  "#e0e0e0",  # 0
+  "#e0e0e0",
   "#deebf7",
   "#9ecae1",
   "#6baed6",
@@ -46,6 +46,15 @@ rain_labels <- c(
   "0.50–1.00 in",
   ">1.00 in"
 )
+
+card_style <- "
+  background:#f8f9fa;
+  padding:15px;
+  border-radius:10px;
+  text-align:center;
+  min-height:100px;
+  box-shadow:0 1px 3px rgba(0,0,0,0.12);
+"
 
 # -----------------------------
 # Helpers
@@ -150,6 +159,43 @@ ui <- fluidPage(
       
       fluidRow(
         column(
+          3,
+          div(
+            style = card_style,
+            h5("Max Rainfall"),
+            h3(textOutput("max_rain", inline = TRUE))
+          )
+        ),
+        column(
+          3,
+          div(
+            style = card_style,
+            h5("Nearest Station"),
+            h4(textOutput("nearest_station", inline = TRUE))
+          )
+        ),
+        column(
+          3,
+          div(
+            style = card_style,
+            h5("Stations"),
+            h3(textOutput("station_count", inline = TRUE))
+          )
+        ),
+        column(
+          3,
+          div(
+            style = card_style,
+            h5("Updated"),
+            h4(textOutput("last_updated", inline = TRUE))
+          )
+        )
+      ),
+      
+      br(),
+      
+      fluidRow(
+        column(
           8,
           leafletOutput("measured_map", height = 500)
         ),
@@ -208,6 +254,39 @@ server <- function(input, output, session) {
   
   rainfall_data <- reactive({
     get_garden_rainfall(hours = selected_hours())
+  })
+  
+  output$max_rain <- renderText({
+    
+    df <- rainfall_data()
+    
+    if (nrow(df) == 0 || all(is.na(df$rainfall_in))) {
+      return("NA")
+    }
+    
+    paste0(round(max(df$rainfall_in, na.rm = TRUE), 2), " in")
+  })
+  
+  output$nearest_station <- renderText({
+    
+    df <- rainfall_data()
+    
+    if (nrow(df) == 0) {
+      return("None")
+    }
+    
+    df$station[1]
+  })
+  
+  output$station_count <- renderText({
+    nrow(rainfall_data())
+  })
+  
+  output$last_updated <- renderText({
+    format(
+      with_tz(Sys.time(), GARDEN_TZ),
+      "%H:%M"
+    )
   })
   
   output$measured_map <- renderLeaflet({
