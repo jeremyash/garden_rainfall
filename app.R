@@ -1,11 +1,133 @@
 library(shiny)
 library(leaflet)
 library(DT)
+library(httr2)
+library(tidyverse)
+library(lubridate)
+
+# -----------------------------
+# Settings
+# -----------------------------
+
+SYNOPTIC_TOKEN <- Sys.getenv("SYNOPTIC_TOKEN")
 
 GARDEN_NAME <- "Garden"
-GARDEN_LAT <- 35.611622
-GARDEN_LON <- -82.371369
+GARDEN_LAT  <- 35.611622
+GARDEN_LON  <- -82.371369
 GARDEN_TZ   <- "America/New_York"
+
+RAINFALL_RADIUS_MILES <- 5
+
+garden_icon <- awesomeIcons(
+  icon = "heart",
+  iconColor = "white",
+  library = "fa",
+  markerColor = "red"
+)
+
+rain_bins <- c(-Inf, 0, 0.01, 0.10, 0.25, 0.50, 1, Inf)
+
+rain_colors <- c(
+  "#e0e0e0",  # 0
+  "#deebf7",
+  "#9ecae1",
+  "#6baed6",
+  "#3182bd",
+  "#08519c",
+  "#08306b"
+)
+
+rain_labels <- c(
+  "0 in",
+  ">0–0.01 in",
+  "0.01–0.10 in",
+  "0.10–0.25 in",
+  "0.25–0.50 in",
+  "0.50–1.00 in",
+  ">1.00 in"
+)
+
+# -----------------------------
+# Helpers
+# -----------------------------
+
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
+
+get_precip_value <- function(obs) {
+  
+  if (is.null(obs)) return(NA_real_)
+  
+  flat <- unlist(obs, recursive = TRUE, use.names = TRUE)
+  
+  if (length(flat) == 0) return(NA_real_)
+  
+  precip_candidates <- flat[
+    grepl("precip|rain|total", names(flat), ignore.case = TRUE)
+  ]
+  
+  nums <- suppressWarnings(as.numeric(precip_candidates))
+  nums <- nums[!is.na(nums)]
+  
+  if (length(nums) == 0) return(NA_real_)
+  
+  nums[1]
+}
+
+get_garden_rainfall <- function(hours = 24) {
+  
+  if (SYNOPTIC_TOKEN == "") {
+    stop("SYNOPTIC_TOKEN is empty. Check .Renviron and restart RStudio.")
+  }
+  
+  end_time <- with_tz(Sys.time(), "UTC")
+  start_time <- end_time - lubridate::hours(hours)
+  
+  start_txt <- format(start_time, "%Y%m%d%H%M")
+  end_txt   <- format(end_time, "%Y%m%d%H%M")
+  
+  resp <- request("https://api.synopticdata.com/v2/stations/precip") |>
+    req_url_query(
+      token = SYNOPTIC_TOKEN,
+      radius = paste(GARDEN_LAT, GARDEN_LON, RAINFALL_RADIUS_MILES, sep = ","),
+      start = start_txt,
+      end = end_txt,
+      pmode = "totals",
+      units = "precip|in",
+      output = "json"
+    ) |>
+    req_perform()
+  
+  dat <- resp_body_json(resp, simplifyVector = FALSE)
+  
+  print(dat$SUMMARY)
+  
+  if (!is.null(dat$SUMMARY$RESPONSE_CODE) && dat$SUMMARY$RESPONSE_CODE != 1) {
+    stop(dat$SUMMARY$RESPONSE_MESSAGE %||% "Synoptic API request failed.")
+  }
+  
+  if (is.null(dat$STATION) || length(dat$STATION) == 0) {
+    return(tibble())
+  }
+  
+  purrr::map_dfr(dat$STATION, function(x) {
+    
+    tibble(
+      station = x$NAME %||% NA_character_,
+      stid = x$STID %||% NA_character_,
+      lat = suppressWarnings(as.numeric(x$LATITUDE %||% NA_real_)),
+      lon = suppressWarnings(as.numeric(x$LONGITUDE %||% NA_real_)),
+      distance_mi = suppressWarnings(as.numeric(x$DISTANCE %||% NA_real_)),
+      rainfall_in = get_precip_value(x$OBSERVATIONS)
+    )
+  }) |>
+    arrange(distance_mi)
+}
+
+# -----------------------------
+# UI
+# -----------------------------
 
 ui <- fluidPage(
   
@@ -46,39 +168,97 @@ ui <- fluidPage(
   )
 )
 
+# -----------------------------
+# Server
+# -----------------------------
+
 server <- function(input, output, session) {
+  
+  rainfall_data <- reactive({
+    get_garden_rainfall(hours = 24)
+  })
   
   output$measured_map <- renderLeaflet({
     
-    leaflet() |>
+    df <- rainfall_data()
+    
+    pal <- colorBin(
+      palette = rain_colors,
+      bins = rain_bins,
+      domain = df$rainfall_in,
+      na.color = "#000000",
+      right = TRUE
+    )
+    
+    m <- leaflet() |>
       addProviderTiles(providers$CartoDB.Voyager) |>
       
-      addCircleMarkers(
+      addAwesomeMarkers(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
-        radius = 10,
-        color = "black",
-        weight = 2,
-        fillColor = "forestgreen",
-        fillOpacity = 1,
-        label = GARDEN_NAME
+        icon = garden_icon,
+        label = GARDEN_NAME,
+        popup = paste0(
+          "<strong>", GARDEN_NAME, "</strong><br>",
+          "Lat: ", GARDEN_LAT, "<br>",
+          "Lon: ", GARDEN_LON
+        )
       ) |>
       
       addCircles(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
-        radius = 25 * 1609.34,
+        radius = RAINFALL_RADIUS_MILES * 1609.34,
         color = "forestgreen",
         fillOpacity = 0,
         weight = 2,
         dashArray = "5,5"
       ) |>
       
+      addLegend(
+        position = "bottomright",
+        colors = c(rain_colors, "#000000"),
+        labels = c(rain_labels, "No value"),
+        title = "24-hr rainfall",
+        opacity = 0.8
+      ) |>
+      
       setView(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
-        zoom = 10
+        zoom = 12
       )
+    
+    if (nrow(df) > 0) {
+      m <- m |>
+        addCircleMarkers(
+          data = df,
+          lng = ~lon,
+          lat = ~lat,
+          radius = 7,
+          color = "black",
+          weight = 1,
+          fillColor = ~ifelse(
+            is.na(rainfall_in),
+            "#000000",
+            pal(rainfall_in)
+          ),
+          fillOpacity = 0.85,
+          label = ~paste0(
+            station, ": ",
+            ifelse(is.na(rainfall_in), "No rainfall value", paste0(round(rainfall_in, 2), " in"))
+          ),
+          popup = ~paste0(
+            "<strong>", station, "</strong><br>",
+            "Station: ", stid, "<br>",
+            "Distance: ", round(distance_mi, 1), " mi<br>",
+            "24-hr rainfall: ",
+            ifelse(is.na(rainfall_in), "No value", paste0(round(rainfall_in, 2), " in"))
+          )
+        )
+    }
+    
+    m
   })
   
   output$garden_summary <- renderTable({
@@ -88,27 +268,45 @@ server <- function(input, output, session) {
         "Garden",
         "Latitude",
         "Longitude",
-        "Search Radius"
+        "Search Radius",
+        "Rainfall Period"
       ),
       
       Value = c(
         GARDEN_NAME,
         GARDEN_LAT,
         GARDEN_LON,
-        "25 miles"
+        paste(RAINFALL_RADIUS_MILES, "miles"),
+        "24 hours"
       )
     )
   })
   
   output$station_table <- renderDT({
     
-    datatable(
-      data.frame(
-        Station = character(),
-        Rainfall = numeric()
-      ),
-      options = list(dom = "t")
-    )
+    df <- rainfall_data()
+    
+    if (nrow(df) == 0) {
+      return(datatable(
+        data.frame(Message = "No rainfall stations returned."),
+        rownames = FALSE,
+        options = list(dom = "t")
+      ))
+    }
+    
+    df |>
+      transmute(
+        Station = station,
+        ID = stid,
+        `Distance (mi)` = round(distance_mi, 1),
+        `24-hr Rainfall (in)` = round(rainfall_in, 2),
+        Latitude = round(lat, 4),
+        Longitude = round(lon, 4)
+      ) |>
+      datatable(
+        rownames = FALSE,
+        options = list(pageLength = 10)
+      )
   })
 }
 
