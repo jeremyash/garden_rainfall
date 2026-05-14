@@ -439,7 +439,7 @@ server <- function(input, output, session) {
       ) |>
       
       addLegend(
-        position = "bottomright",
+        position = "topright",
         colors = c(rain_colors, "#000000"),
         labels = c(rain_labels, "No value"),
         title = paste(window_label, "rainfall"),
@@ -650,7 +650,7 @@ server <- function(input, output, session) {
       ) |>
       
       addLegend(
-        position = "bottomright",
+        position = "topright",
         colors = rain_colors,
         labels = rain_labels,
         title = "6-hr Forecast Rainfall",
