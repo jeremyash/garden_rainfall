@@ -2,6 +2,11 @@ library(shiny)
 library(leaflet)
 library(DT)
 
+GARDEN_NAME <- "Garden"
+GARDEN_LAT <- 35.611622
+GARDEN_LON <- -82.371369
+GARDEN_TZ   <- "America/New_York"
+
 ui <- fluidPage(
   
   titlePanel("Garden Rainfall"),
@@ -47,9 +52,31 @@ server <- function(input, output, session) {
     
     leaflet() |>
       addProviderTiles(providers$CartoDB.Voyager) |>
+      
+      addCircleMarkers(
+        lng = GARDEN_LON,
+        lat = GARDEN_LAT,
+        radius = 10,
+        color = "black",
+        weight = 2,
+        fillColor = "forestgreen",
+        fillOpacity = 1,
+        label = GARDEN_NAME
+      ) |>
+      
+      addCircles(
+        lng = GARDEN_LON,
+        lat = GARDEN_LAT,
+        radius = 25 * 1609.34,
+        color = "forestgreen",
+        fillOpacity = 0,
+        weight = 2,
+        dashArray = "5,5"
+      ) |>
+      
       setView(
-        lng = -82.55,
-        lat = 35.60,
+        lng = GARDEN_LON,
+        lat = GARDEN_LAT,
         zoom = 10
       )
   })
@@ -58,15 +85,17 @@ server <- function(input, output, session) {
     
     data.frame(
       Metric = c(
-        "Site Name",
+        "Garden",
         "Latitude",
-        "Longitude"
+        "Longitude",
+        "Search Radius"
       ),
       
       Value = c(
-        "Garden",
-        35.60,
-        -82.55
+        GARDEN_NAME,
+        GARDEN_LAT,
+        GARDEN_LON,
+        "25 miles"
       )
     )
   })
