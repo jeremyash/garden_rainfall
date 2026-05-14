@@ -74,11 +74,9 @@ format_rain_window <- function(hours) {
 }
 
 get_precip_value <- function(obs) {
-  
   if (is.null(obs)) return(NA_real_)
   
   flat <- unlist(obs, recursive = TRUE, use.names = TRUE)
-  
   if (length(flat) == 0) return(NA_real_)
   
   precip_candidates <- flat[
@@ -130,7 +128,6 @@ get_garden_rainfall <- function(hours = 24) {
   }
   
   purrr::map_dfr(dat$STATION, function(x) {
-    
     tibble(
       station = x$NAME %||% NA_character_,
       stid = x$STID %||% NA_character_,
@@ -150,7 +147,7 @@ get_ndfd_qpf <- function() {
   
   qpf <- terra::rast(tmp)
   
-  garden_pt <- terra::vect(
+  garden_ll <- terra::vect(
     data.frame(
       lon = GARDEN_LON,
       lat = GARDEN_LAT
@@ -159,7 +156,9 @@ get_ndfd_qpf <- function() {
     crs = "EPSG:4326"
   )
   
-  vals <- terra::extract(qpf, garden_pt)
+  garden_qpf <- terra::project(garden_ll, terra::crs(qpf))
+  
+  vals <- terra::extract(qpf, garden_qpf)
   qpf_values <- as.numeric(vals[1, -1])
   
   valid_times <- terra::time(qpf)
@@ -172,21 +171,39 @@ get_ndfd_qpf <- function() {
     )
   }
   
+  valid_times_local <- with_tz(valid_times, GARDEN_TZ)
+  
   qpf_table <- tibble(
-    period = seq_along(qpf_values),
-    slider_value = as.character(seq_along(qpf_values)),
+    layer = seq_along(qpf_values),
     valid_time_utc = valid_times,
-    valid_time_local = with_tz(valid_times, GARDEN_TZ),
+    valid_time_local = valid_times_local,
     rainfall_in = qpf_values,
-    cumulative_rainfall_in = cumsum(replace_na(qpf_values, 0))
+    cumulative_rainfall_in = cumsum(replace_na(qpf_values, 0)),
+    slider_label = format(valid_times_local, "%a %b %d, %H:%M")
   )
   
+  garden_buffer <- terra::buffer(
+    terra::project(garden_ll, "EPSG:3857"),
+    width = RAINFALL_RADIUS_MILES * FORECAST_MAP_RADIUS_MULTIPLIER * 1609.34
+  ) |>
+    terra::project(terra::crs(qpf))
+  
+  qpf_crop <- terra::crop(qpf, garden_buffer)
+  qpf_mask <- terra::mask(qpf_crop, garden_buffer)
+  
   list(
-    qpf = qpf,
+    qpf = qpf_mask,
     table = qpf_table,
     valid_times = valid_times
   )
 }
+
+# -----------------------------
+# Load forecast once
+# -----------------------------
+
+forecast_cache <- get_ndfd_qpf()
+forecast_choices <- forecast_cache$table$slider_label
 
 # -----------------------------
 # UI
@@ -251,22 +268,41 @@ ui <- fluidPage(
       
       h4("NDFD Forecast Rainfall"),
       
-      leafletOutput("forecast_map", height = 600),
+      leafletOutput("forecast_map", height = 650),
       
       br(),
       
-      sliderTextInput(
-        inputId = "forecast_period",
-        label = "Forecast Period",
-        choices = "Loading...",
-        selected = "Loading...",
-        animate = animationOptions(
-          interval = 1200,
-          loop = TRUE
+      fluidRow(
+        column(
+          2,
+          actionButton("forecast_prev", "\u25C0 Previous", width = "100%")
+        ),
+        column(
+          8,
+          sliderTextInput(
+            inputId = "forecast_period",
+            label = "Forecast Time",
+            choices = forecast_choices,
+            selected = forecast_choices[1],
+            grid = TRUE
+          )
+        ),
+        column(
+          2,
+          actionButton("forecast_next", "Next \u25B6", width = "100%")
         )
       ),
       
-      textOutput("forecast_time_label")
+      br(),
+      
+      div(
+        style = "
+          text-align:center;
+          font-size:18px;
+          font-weight:600;
+        ",
+        textOutput("forecast_time_label")
+      )
     )
   )
 )
@@ -440,39 +476,44 @@ server <- function(input, output, session) {
     )
   })
   
-  forecast_data <- reactive({
-    req(input$main_tabs == "Forecast Rainfall")
-    get_ndfd_qpf()
-  })
-  
-  observeEvent(forecast_data(), {
+  observeEvent(input$forecast_prev, {
     
-    df <- forecast_data()$table
-    
-    slider_choices <- setNames(
-      df$slider_value,
-      format(df$valid_time_local, "%b %d %H:%M")
-    )
+    current_index <- match(input$forecast_period, forecast_choices)
+    new_index <- max(1, current_index - 1)
     
     updateSliderTextInput(
       session,
       "forecast_period",
-      choices = slider_choices,
-      selected = df$slider_value[1]
+      selected = forecast_choices[new_index]
     )
+  })
+  
+  observeEvent(input$forecast_next, {
+    
+    current_index <- match(input$forecast_period, forecast_choices)
+    new_index <- min(length(forecast_choices), current_index + 1)
+    
+    updateSliderTextInput(
+      session,
+      "forecast_period",
+      selected = forecast_choices[new_index]
+    )
+  })
+  
+  selected_forecast_row <- reactive({
+    req(input$forecast_period)
+    forecast_cache$table[
+      forecast_cache$table$slider_label == input$forecast_period,
+    ]
   })
   
   output$forecast_time_label <- renderText({
     
-    req(input$forecast_period)
-    req(input$forecast_period != "Loading...")
-    
-    df <- forecast_data()$table
-    row <- df[df$slider_value == input$forecast_period, ]
+    row <- selected_forecast_row()
     
     paste0(
       "Forecast valid: ",
-      format(row$valid_time_local, "%b %d %H:%M"),
+      row$slider_label,
       " | 6-hr rainfall at garden: ",
       round(row$rainfall_in, 2),
       " in | Cumulative: ",
@@ -483,35 +524,10 @@ server <- function(input, output, session) {
   
   output$forecast_map <- renderLeaflet({
     
-    req(input$forecast_period)
-    req(input$forecast_period != "Loading...")
+    row <- selected_forecast_row()
     
-    dat <- forecast_data()
-    qpf <- dat$qpf
-    df <- dat$table
-    
-    lyr <- as.numeric(input$forecast_period)
-    qpf_layer <- qpf[[lyr]]
-    
-    row <- df[df$slider_value == input$forecast_period, ]
-    
-    garden_pt <- terra::vect(
-      data.frame(
-        lon = GARDEN_LON,
-        lat = GARDEN_LAT
-      ),
-      geom = c("lon", "lat"),
-      crs = "EPSG:4326"
-    )
-    
-    garden_buffer <- terra::buffer(
-      terra::project(garden_pt, "EPSG:3857"),
-      width = RAINFALL_RADIUS_MILES * FORECAST_MAP_RADIUS_MULTIPLIER * 1609.34
-    ) |>
-      terra::project(terra::crs(qpf_layer))
-    
-    qpf_crop <- terra::crop(qpf_layer, garden_buffer)
-    qpf_mask <- terra::mask(qpf_crop, garden_buffer)
+    lyr <- row$layer
+    qpf_layer <- forecast_cache$qpf[[lyr]]
     
     rain_pal <- colorBin(
       palette = rain_colors,
@@ -524,7 +540,7 @@ server <- function(input, output, session) {
     leaflet() |>
       addProviderTiles(providers$CartoDB.Voyager) |>
       addRasterImage(
-        qpf_mask,
+        qpf_layer,
         colors = rain_pal,
         opacity = 0.7,
         project = TRUE
@@ -536,6 +552,7 @@ server <- function(input, output, session) {
         label = GARDEN_NAME,
         popup = paste0(
           "<strong>", GARDEN_NAME, "</strong><br>",
+          "Forecast valid: ", row$slider_label, "<br>",
           "6-hr QPF: ", round(row$rainfall_in, 2), " in<br>",
           "Cumulative: ", round(row$cumulative_rainfall_in, 2), " in"
         )
