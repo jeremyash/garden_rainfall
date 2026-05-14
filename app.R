@@ -268,41 +268,61 @@ ui <- fluidPage(
       
       h4("NDFD Forecast Rainfall"),
       
-      leafletOutput("forecast_map", height = 650),
-      
-      br(),
-      
-      fluidRow(
-        column(
-          2,
-          actionButton("forecast_prev", "\u25C0 Previous", width = "100%")
+      div(
+        style = "
+      background:#f8f9fa;
+      padding:15px;
+      border-radius:10px;
+      margin-bottom:12px;
+      box-shadow:0 1px 3px rgba(0,0,0,0.12);
+    ",
+        
+        div(
+          style = "
+        text-align:center;
+        font-size:18px;
+        font-weight:600;
+        margin-bottom:10px;
+      ",
+          textOutput("forecast_time_label")
         ),
-        column(
-          8,
-          sliderTextInput(
-            inputId = "forecast_period",
-            label = "Forecast Time",
-            choices = forecast_choices,
-            selected = forecast_choices[1],
-            grid = TRUE
+        
+        fluidRow(
+          column(
+            2,
+            actionButton(
+              "forecast_prev",
+              "\u25C0 Previous",
+              width = "100%",
+              class = "btn-default"
+            )
+          ),
+          
+          column(
+            8,
+            sliderTextInput(
+              inputId = "forecast_period",
+              label = NULL,
+              choices = forecast_choices,
+              selected = forecast_choices[1],
+              grid = FALSE,
+              width = "100%"
+            )
+          ),
+          
+          column(
+            2,
+            actionButton(
+              "forecast_next",
+              "Next \u25B6",
+              width = "100%",
+              class = "btn-default"
+            )
           )
-        ),
-        column(
-          2,
-          actionButton("forecast_next", "Next \u25B6", width = "100%")
         )
       ),
       
-      br(),
-      
-      div(
-        style = "
-          text-align:center;
-          font-size:18px;
-          font-weight:600;
-        ",
-        textOutput("forecast_time_label")
-      )
+      leafletOutput("forecast_map", height = 650)
     )
   )
 )
@@ -512,11 +532,11 @@ server <- function(input, output, session) {
     row <- selected_forecast_row()
     
     paste0(
-      "Forecast valid: ",
+      "Forecast time: ",
       row$slider_label,
-      " | 6-hr rainfall at garden: ",
+      "   |   Forecast rainfall: ",
       round(row$rainfall_in, 2),
-      " in | Cumulative: ",
+      " in   |   Cumulative: ",
       round(row$cumulative_rainfall_in, 2),
       " in"
     )
@@ -553,7 +573,7 @@ server <- function(input, output, session) {
         popup = paste0(
           "<strong>", GARDEN_NAME, "</strong><br>",
           "Forecast valid: ", row$slider_label, "<br>",
-          "6-hr QPF: ", round(row$rainfall_in, 2), " in<br>",
+          "Forecast rainfall: ", round(row$rainfall_in, 2), " in<br>",
           "Cumulative: ", round(row$cumulative_rainfall_in, 2), " in"
         )
       ) |>
