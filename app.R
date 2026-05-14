@@ -11,6 +11,10 @@ library(terra)
 # Settings
 # -----------------------------
 
+if (file.exists(".secrets/synoptic_token.R")) {
+  source(".secrets/synoptic_token.R")
+}
+
 SYNOPTIC_TOKEN <- Sys.getenv("SYNOPTIC_TOKEN")
 
 # -----------------------------
@@ -149,7 +153,8 @@ get_precip_value <- function(obs) {
 get_garden_rainfall <- function(hours = 24) {
   
   if (SYNOPTIC_TOKEN == "") {
-    stop("SYNOPTIC_TOKEN is empty. Check .Renviron and restart RStudio.")
+    warning("SYNOPTIC_TOKEN is empty. Measured rainfall will not load.")
+    return(tibble())
   }
   
   end_time <- with_tz(Sys.time(), "UTC")
@@ -204,6 +209,43 @@ ui <- fluidPage(
   
   titlePanel("Garden Rainfall"),
   
+  tags$head(
+    tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
+    tags$style(HTML("
+    @media (max-width: 768px) {
+      .container-fluid {
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+
+      h2 {
+        font-size: 24px;
+      }
+
+      h4 {
+        font-size: 18px;
+      }
+
+      .leaflet-container {
+        height: 420px !important;
+      }
+
+      .btn {
+        font-size: 14px;
+        padding: 8px 10px;
+      }
+
+      .irs {
+        margin-top: 5px;
+      }
+
+      table {
+        font-size: 13px;
+      }
+    }
+  "))
+  ),
+  
   tabsetPanel(
     
     tabPanel(
@@ -254,7 +296,7 @@ ui <- fluidPage(
       fluidRow(
         column(
           8,
-          leafletOutput("measured_map", height = 500)
+          leafletOutput("measured_map", height = 450)
         ),
         
         column(
@@ -318,7 +360,7 @@ ui <- fluidPage(
             2,
             actionButton(
               "forecast_prev",
-              "\u25C0 Previous",
+              "\u25C0",
               width = "100%"
             )
           ),
@@ -339,14 +381,14 @@ ui <- fluidPage(
             2,
             actionButton(
               "forecast_next",
-              "Next \u25B6",
+              "\u25B6",
               width = "100%"
             )
           )
         )
       ),
       
-      leafletOutput("forecast_map", height = 650)
+      leafletOutput("forecast_map", height = 500)
     )
   )
 )
@@ -366,6 +408,9 @@ server <- function(input, output, session) {
   })
   
   rainfall_data <- reactive({
+    
+    invalidateLater(5 * 60 * 1000, session)
+    
     get_garden_rainfall(hours = selected_hours())
   })
   
