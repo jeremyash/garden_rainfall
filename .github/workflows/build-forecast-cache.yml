@@ -1,0 +1,80 @@
+name: Build garden rainfall forecast cache
+
+on:
+  schedule:
+    - cron: "12 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: garden-forecast-cache
+  cancel-in-progress: true
+
+jobs:
+  build-cache:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-repo
+
+      - name: Check out cache branch
+        uses: actions/checkout@v4
+        with:
+          ref: cache-data
+          path: cache-repo
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          use-public-rspm: true
+
+      - name: Install spatial system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            libudunits2-dev
+
+      - name: Install R packages
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: main-repo
+          packages: |
+            any::terra
+            any::tidyverse
+            any::lubridate
+
+      - name: Build forecast cache
+        working-directory: main-repo
+        run: |
+          Rscript scripts/update_forecast_cache.R
+
+      - name: Copy cache files to cache branch
+        run: |
+          mkdir -p cache-repo/cache
+          cp main-repo/cache/forecast_cache.rds cache-repo/cache/
+          cp main-repo/cache/forecast_qpf_ll.tif cache-repo/cache/
+
+      - name: Commit cache files
+        working-directory: cache-repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add cache/forecast_cache.rds cache/forecast_qpf_ll.tif
+
+          if git diff --cached --quiet; then
+            echo "No cache changes to commit."
+          else
+            git commit -m "Update garden rainfall forecast cache"
+            git push origin cache-data
+          fi
