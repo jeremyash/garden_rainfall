@@ -55,6 +55,14 @@ rain_labels <- c(
   if (is.null(x)) y else x
 }
 
+format_rain_window <- function(hours) {
+  if (hours == 1) {
+    "1-hr"
+  } else {
+    paste0(hours, "-hr")
+  }
+}
+
 get_precip_value <- function(obs) {
   
   if (is.null(obs)) return(NA_real_)
@@ -149,6 +157,22 @@ ui <- fluidPage(
         column(
           4,
           h4("Garden Summary"),
+          
+          selectInput(
+            "rain_window",
+            "Rainfall Period",
+            choices = c(
+              "1 hour" = 1,
+              "3 hours" = 3,
+              "6 hours" = 6,
+              "12 hours" = 12,
+              "24 hours" = 24,
+              "48 hours" = 48,
+              "72 hours" = 72
+            ),
+            selected = 24
+          ),
+          
           tableOutput("garden_summary")
         )
       ),
@@ -174,13 +198,22 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   
+  selected_hours <- reactive({
+    as.numeric(input$rain_window)
+  })
+  
+  selected_window_label <- reactive({
+    format_rain_window(selected_hours())
+  })
+  
   rainfall_data <- reactive({
-    get_garden_rainfall(hours = 24)
+    get_garden_rainfall(hours = selected_hours())
   })
   
   output$measured_map <- renderLeaflet({
     
     df <- rainfall_data()
+    window_label <- selected_window_label()
     
     pal <- colorBin(
       palette = rain_colors,
@@ -219,7 +252,7 @@ server <- function(input, output, session) {
         position = "bottomright",
         colors = c(rain_colors, "#000000"),
         labels = c(rain_labels, "No value"),
-        title = "24-hr rainfall",
+        title = paste(window_label, "rainfall"),
         opacity = 0.8
       ) |>
       
@@ -252,7 +285,7 @@ server <- function(input, output, session) {
             "<strong>", station, "</strong><br>",
             "Station: ", stid, "<br>",
             "Distance: ", round(distance_mi, 1), " mi<br>",
-            "24-hr rainfall: ",
+            window_label, " rainfall: ",
             ifelse(is.na(rainfall_in), "No value", paste0(round(rainfall_in, 2), " in"))
           )
         )
@@ -277,7 +310,7 @@ server <- function(input, output, session) {
         GARDEN_LAT,
         GARDEN_LON,
         paste(RAINFALL_RADIUS_MILES, "miles"),
-        "24 hours"
+        paste(selected_hours(), "hours")
       )
     )
   })
@@ -285,6 +318,7 @@ server <- function(input, output, session) {
   output$station_table <- renderDT({
     
     df <- rainfall_data()
+    rain_col_name <- paste0(selected_window_label(), " Rainfall (in)")
     
     if (nrow(df) == 0) {
       return(datatable(
@@ -294,19 +328,23 @@ server <- function(input, output, session) {
       ))
     }
     
-    df |>
+    out <- df |>
       transmute(
         Station = station,
         ID = stid,
         `Distance (mi)` = round(distance_mi, 1),
-        `24-hr Rainfall (in)` = round(rainfall_in, 2),
+        Rainfall = round(rainfall_in, 2),
         Latitude = round(lat, 4),
         Longitude = round(lon, 4)
-      ) |>
-      datatable(
-        rownames = FALSE,
-        options = list(pageLength = 10)
       )
+    
+    names(out)[names(out) == "Rainfall"] <- rain_col_name
+    
+    datatable(
+      out,
+      rownames = FALSE,
+      options = list(pageLength = 10)
+    )
   })
 }
 
