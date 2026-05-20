@@ -40,6 +40,9 @@ download.file(
 
 qpf <- terra::rast(tmp)
 
+qpf <- qpf / 25.4
+terra::units(qpf) <- "in"
+
 message("NDFD QPF layers: ", terra::nlyr(qpf))
 
 # -----------------------------
