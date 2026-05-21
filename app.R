@@ -190,7 +190,7 @@ get_garden_rainfall <- function(hours = 24) {
 # -----------------------------
 
 ui <- fluidPage(
-  
+  title = "Garden Rainfall",
   div(
     class = "garden-header",
     
@@ -208,6 +208,10 @@ ui <- fluidPage(
   tags$head(
     # Force mobile viewport
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
+    tags$meta(name = "apple-mobile-web-app-capable", content = "yes"),
+    tags$meta(name = "apple-mobile-web-app-title", content = "Garden Rainfall"),
+    tags$meta(name = "mobile-web-app-capable", content = "yes"),
+    tags$meta(name = "theme-color", content = "#d62828"),
     
     # iOS home-screen behavior
     tags$meta(name = "apple-mobile-web-app-capable", content = "yes"),
