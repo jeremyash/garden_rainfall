@@ -377,6 +377,86 @@ ui <- fluidPage(
         font-size:11px !important;
       }
     }
+    
+    .forecast-control-card {
+      background:rgba(255,255,255,0.95);
+      padding:14px;
+      border-radius:14px;
+      margin-bottom:12px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.12);
+    }
+    
+    .forecast-time-label {
+      text-align:center;
+      font-size:17px;
+      font-weight:700;
+      color:#1f2d3d;
+      margin-bottom:12px;
+      line-height:1.35;
+    }
+    
+    .forecast-step-row {
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    
+    .forecast-step-button {
+      width:80px;
+      min-height:44px;
+      font-size:18px !important;
+      font-weight:700 !important;
+      border-radius:12px !important;
+    }
+    
+    .forecast-slider-wrap {
+      flex:1;
+      min-width:0;
+    }
+    
+    .forecast-slider-wrap .form-group {
+      margin-bottom:0;
+    }
+    
+    .forecast-slider-wrap .irs {
+      margin-top:0;
+    }
+    
+    @media (max-width:768px) {
+      .forecast-control-card {
+        padding:10px;
+      }
+    
+      .forecast-time-label {
+        font-size:14px;
+        margin-bottom:8px;
+      }
+    
+      .forecast-step-row {
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:8px;
+      }
+    
+      .forecast-slider-wrap {
+        grid-column:1 / -1;
+        order:1;
+      }
+    
+      .forecast-prev-wrap {
+        order:2;
+      }
+    
+      .forecast-next-wrap {
+        order:3;
+      }
+    
+      .forecast-step-button {
+        width:100%;
+        min-height:46px;
+        font-size:20px !important;
+      }
+    }
     "))
   ),
   
@@ -506,31 +586,26 @@ ui <- fluidPage(
       
       br(),
       
-      h4("NDFD Forecast Rainfall"),
+      h4("Forecast Rainfall"),
       
       div(
-        style = "
-          background:#f8f9fa;
-          padding:15px;
-          border-radius:10px;
-          margin-bottom:12px;
-          box-shadow:0 1px 3px rgba(0,0,0,0.12);
-        ",
+        class = "forecast-control-card",
         
         div(
-          style = "
-            text-align:center;
-            font-size:18px;
-            font-weight:600;
-            margin-bottom:10px;
-          ",
+          class = "forecast-time-label",
           textOutput("forecast_time_label")
         ),
         
-        fluidRow(
-          column(2, actionButton("forecast_prev", "\u25C0", width = "100%")),
-          column(
-            8,
+        div(
+          class = "forecast-step-row",
+          
+          div(
+            class = "forecast-prev-wrap",
+            actionButton("forecast_prev", "\u25C0", class = "forecast-step-button")
+          ),
+          
+          div(
+            class = "forecast-slider-wrap",
             sliderTextInput(
               inputId = "forecast_period",
               label = NULL,
@@ -540,7 +615,11 @@ ui <- fluidPage(
               width = "100%"
             )
           ),
-          column(2, actionButton("forecast_next", "\u25B6", width = "100%"))
+          
+          div(
+            class = "forecast-next-wrap",
+            actionButton("forecast_next", "\u25B6", class = "forecast-step-button")
+          )
         )
       ),
       
