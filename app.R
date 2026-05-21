@@ -206,6 +206,64 @@ ui <- fluidPage(
   ),
   
   tags$head(
+    # Force mobile viewport
+    tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
+    
+    # iOS home-screen behavior
+    tags$meta(name = "apple-mobile-web-app-capable", content = "yes"),
+    tags$meta(name = "apple-mobile-web-app-title", content = "Garden Rainfall"),
+    tags$meta(name = "apple-mobile-web-app-status-bar-style", content = "default"),
+    
+    # Force iOS home-screen icon.
+    # The version query helps beat old Shiny/browser icon cache.
+    tags$link(
+      rel = "apple-touch-icon",
+      sizes = "180x180",
+      href = "apple-touch-icon.png?v=20260520"
+    ),
+    tags$link(
+      rel = "apple-touch-icon-precomposed",
+      sizes = "180x180",
+      href = "apple-touch-icon.png?v=20260520"
+    ),
+    tags$link(
+      rel = "apple-touch-icon",
+      sizes = "167x167",
+      href = "apple-touch-icon-167x167.png?v=20260520"
+    ),
+    tags$link(
+      rel = "apple-touch-icon",
+      sizes = "152x152",
+      href = "apple-touch-icon-152x152.png?v=20260520"
+    ),
+    
+    # Browser favicons
+    tags$link(
+      rel = "icon",
+      type = "image/png",
+      sizes = "32x32",
+      href = "favicon-32x32.png?v=20260520"
+    ),
+    tags$link(
+      rel = "icon",
+      type = "image/png",
+      sizes = "16x16",
+      href = "favicon-16x16.png?v=20260520"
+    ),
+    
+    # Larger icons for Chrome/Android/PWA-style shortcuts
+    tags$link(
+      rel = "icon",
+      type = "image/png",
+      sizes = "192x192",
+      href = "favicon-192x192.png?v=20260520"
+    ),
+    tags$link(
+      rel = "icon",
+      type = "image/png",
+      sizes = "512x512",
+      href = "favicon-512x512.png?v=20260520"
+    ),
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
     tags$style(HTML("
       @media (max-width: 768px) {
