@@ -1,20 +1,10 @@
 library(shiny)
 library(shinyWidgets)
 library(leaflet)
-library(httr2)
 library(tidyverse)
 library(lubridate)
 library(terra)
 
-# -----------------------------
-# Settings
-# -----------------------------
-
-if (file.exists(".secrets/synoptic_token.R")) {
-  source(".secrets/synoptic_token.R")
-}
-
-SYNOPTIC_TOKEN <- Sys.getenv("SYNOPTIC_TOKEN")
 
 # -----------------------------
 # Remote forecast cache
@@ -36,6 +26,19 @@ REMOTE_CACHE_TIF <- paste0(
   CACHE_BRANCH, "/cache/forecast_qpf_ll.tif"
 )
 
+REMOTE_OBSERVED_RDS <- paste0(
+  "https://raw.githubusercontent.com/",
+  GITHUB_OWNER, "/", GITHUB_REPO, "/",
+  CACHE_BRANCH, "/cache/observed_cache.rds"
+)
+
+REMOTE_OBSERVED_TIF <- paste0(
+  "https://raw.githubusercontent.com/",
+  GITHUB_OWNER, "/", GITHUB_REPO, "/",
+  CACHE_BRANCH, "/cache/observed_qpe_24h_ll.tif"
+)
+
+
 download_remote_cache <- function() {
   
   rds_tmp <- tempfile(fileext = ".rds")
@@ -51,6 +54,39 @@ download_remote_cache <- function() {
 }
 
 remote_forecast <- download_remote_cache()
+
+download_observed_cache <- function() {
+  
+  local_rds <- "cache/observed_cache.rds"
+  local_tif <- "cache/observed_qpe_24h_ll.tif"
+  
+  if (file.exists(local_rds) && file.exists(local_tif)) {
+    message("Using local observed rainfall cache.")
+    
+    return(
+      list(
+        cache = readRDS(local_rds),
+        qpe = terra::rast(local_tif)
+      )
+    )
+  }
+  
+  rds_tmp <- tempfile(fileext = ".rds")
+  tif_tmp <- tempfile(fileext = ".tif")
+  
+  download.file(REMOTE_OBSERVED_RDS, rds_tmp, mode = "wb", quiet = TRUE)
+  download.file(REMOTE_OBSERVED_TIF, tif_tmp, mode = "wb", quiet = TRUE)
+  
+  list(
+    cache = readRDS(rds_tmp),
+    qpe = terra::rast(tif_tmp)
+  )
+}
+
+remote_observed <- download_observed_cache()
+
+observed_cache <- remote_observed$cache
+observed_qpe <- remote_observed$qpe
 
 forecast_cache <- remote_forecast$cache
 forecast_qpf <- remote_forecast$qpf
@@ -95,6 +131,10 @@ rain_labels <- c(
   ">1.00 in"
 )
 
+if (!"slider_value" %in% names(forecast_cache$table)) {
+  forecast_cache$table$slider_value <- as.character(forecast_cache$table$layer)
+}
+
 forecast_choices <- setNames(
   forecast_cache$table$slider_value,
   forecast_cache$table$slider_label
@@ -112,81 +152,6 @@ card_style <- "
 # -----------------------------
 # Helpers
 # -----------------------------
-
-`%||%` <- function(x, y) {
-  if (is.null(x)) y else x
-}
-
-format_rain_window <- function(hours) {
-  if (hours == 1) "1-hr" else paste0(hours, "-hr")
-}
-
-get_precip_value <- function(obs) {
-  
-  if (is.null(obs)) return(NA_real_)
-  
-  flat <- unlist(obs, recursive = TRUE, use.names = TRUE)
-  if (length(flat) == 0) return(NA_real_)
-  
-  precip_candidates <- flat[
-    grepl("precip|rain|total", names(flat), ignore.case = TRUE)
-  ]
-  
-  nums <- suppressWarnings(as.numeric(precip_candidates))
-  nums <- nums[!is.na(nums)]
-  
-  if (length(nums) == 0) return(NA_real_)
-  
-  nums[1]
-}
-
-get_garden_rainfall <- function(hours = 24) {
-  
-  token <- Sys.getenv("SYNOPTIC_TOKEN")
-  
-  if (token == "") {
-    warning("SYNOPTIC_TOKEN is empty. Measured rainfall will not load.")
-    return(tibble())
-  }
-  
-  end_time <- with_tz(Sys.time(), "UTC")
-  start_time <- end_time - lubridate::hours(hours)
-  
-  dat <- request("https://api.synopticdata.com/v2/stations/precip") |>
-    req_url_query(
-      token = token,
-      radius = paste(GARDEN_LAT, GARDEN_LON, RAINFALL_RADIUS_MILES, sep = ","),
-      start = format(start_time, "%Y%m%d%H%M"),
-      end = format(end_time, "%Y%m%d%H%M"),
-      pmode = "totals",
-      units = "precip|in",
-      output = "json"
-    ) |>
-    req_perform() |>
-    resp_body_json(simplifyVector = FALSE)
-  
-  if (!is.null(dat$SUMMARY$RESPONSE_CODE) &&
-      dat$SUMMARY$RESPONSE_CODE != 1) {
-    warning(dat$SUMMARY$RESPONSE_MESSAGE %||% "Synoptic API request failed.")
-    return(tibble())
-  }
-  
-  if (is.null(dat$STATION) || length(dat$STATION) == 0) {
-    return(tibble())
-  }
-  
-  purrr::map_dfr(dat$STATION, \(x) {
-    tibble(
-      station = x$NAME %||% "Station",
-      lat = suppressWarnings(as.numeric(x$LATITUDE %||% NA_real_)),
-      lon = suppressWarnings(as.numeric(x$LONGITUDE %||% NA_real_)),
-      distance_mi = suppressWarnings(as.numeric(x$DISTANCE %||% NA_real_)),
-      rainfall_in = get_precip_value(x$OBSERVATIONS)
-    )
-  }) |>
-    filter(!is.na(lat), !is.na(lon)) |>
-    arrange(distance_mi)
-}
 
 forecast_legend_html <- function() {
   
@@ -571,10 +536,32 @@ ui <- fluidPage(
       br(),
       
       fluidRow(
-        column(3, div(class = "garden-card", h5("Max Rainfall"), h3(textOutput("max_rain", inline = TRUE)))),
-        column(3, div(class = "garden-card", h5("Nearest Station"), h4(textOutput("nearest_station", inline = TRUE)))),
-        column(3, div(class = "garden-card", h5("Stations"), h3(textOutput("station_count", inline = TRUE)))),
-        column(3, div(class = "garden-card", h5("Updated"), h4(textOutput("last_updated", inline = TRUE))))
+        column(
+          4,
+          div(
+            class = "garden-card",
+            h5("Observed Rainfall"),
+            h3(textOutput("observed_rainfall", inline = TRUE))
+          )
+        ),
+        
+        column(
+          4,
+          div(
+            class = "garden-card",
+            h5("Observed Period"),
+            h4("Past 24 hours")
+          )
+        ),
+        
+        column(
+          4,
+          div(
+            class = "garden-card",
+            h5("Updated"),
+            h4(textOutput("last_updated", inline = TRUE))
+          )
+        )
       ),
       
       br(),
@@ -602,21 +589,12 @@ ui <- fluidPage(
                 width:170px;
               ",
               
-              selectInput(
-                "rain_window",
-                "Rainfall Period",
-                choices = c(
-                  "1 hour" = 1,
-                  "3 hours" = 3,
-                  "6 hours" = 6,
-                  "12 hours" = 12,
-                  "24 hours" = 24,
-                  "48 hours" = 48,
-                  "72 hours" = 72
-                ),
-                selected = 24,
-                selectize = FALSE,
-                width = "100%"
+              div(
+                style = "
+                  font-weight:600;
+                  text-align:center;
+                ",
+                "Observed Rainfall (MRMS 24-hour)"
               )
             ),
             
@@ -709,12 +687,14 @@ ui <- fluidPage(
           
           div(
             class = "forecast-slider-wrap",
-            sliderTextInput(
+            sliderInput(
               inputId = "forecast_period",
               label = NULL,
-              choices = forecast_choices,
-              selected = forecast_choices[1],
-              grid = FALSE,
+              min = 1,
+              max = nrow(forecast_cache$table),
+              value = 1,
+              step = 1,
+              ticks = FALSE,
               width = "100%"
             )
           ),
@@ -737,140 +717,85 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   
-  selected_hours <- reactive({
-    as.numeric(input$rain_window)
-  })
-  
-  selected_window_label <- reactive({
-    format_rain_window(selected_hours())
-  })
-  
-  rainfall_data <- reactive({
-    invalidateLater(5 * 60 * 1000, session)
-    get_garden_rainfall(hours = selected_hours())
+  observed_info <- reactive({
+    observed_cache$table
   })
   
   output$legend_title <- renderText({
-    paste(selected_window_label(), "rainfall")
+    "24-hr observed rainfall"
   })
   
-  output$max_rain <- renderText({
-    
-    df <- rainfall_data()
-    
-    if (nrow(df) == 0 || all(is.na(df$rainfall_in))) {
-      return("NA")
-    }
-    
-    paste0(round(max(df$rainfall_in, na.rm = TRUE), 2), " in")
-  })
-  
-  output$nearest_station <- renderText({
-    
-    df <- rainfall_data()
-    
-    if (nrow(df) == 0) return("None")
-    
-    df$station[1]
-  })
-  
-  output$station_count <- renderText({
-    nrow(rainfall_data())
+  output$observed_rainfall <- renderText({
+    paste0(round(observed_info()$rainfall_in, 2), " in")
   })
   
   output$last_updated <- renderText({
-    format(with_tz(Sys.time(), GARDEN_TZ), "%H:%M")
+    
+    format(
+      observed_info()$valid_time_local,
+      "%b %d %H:%M"
+    )
   })
   
   output$measured_map <- renderLeaflet({
-    
-    df <- rainfall_data()
     
     pal <- colorBin(
       palette = rain_colors,
       bins = rain_bins,
       domain = rain_bins,
-      na.color = "#000000",
-      right = TRUE
+      na.color = "transparent"
     )
     
-    m <- leaflet() |>
-      addProviderTiles(providers$CartoDB.Voyager) |>
+    leaflet() |>
+      
+      addProviderTiles(
+        providers$CartoDB.Voyager
+      ) |>
+      
+      addRasterImage(
+        observed_qpe,
+        colors = pal,
+        opacity = 0.75,
+        project = FALSE
+      ) |>
+      
       addAwesomeMarkers(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
         icon = garden_icon,
         label = GARDEN_NAME
       ) |>
-      addCircles(
-        lng = GARDEN_LON,
-        lat = GARDEN_LAT,
-        radius = RAINFALL_RADIUS_MILES * 1609.34,
-        color = "forestgreen",
-        fillOpacity = 0,
-        weight = 2,
-        dashArray = "5,5"
-      ) |>
+      
       setView(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
         zoom = 11
       )
-    
-    if (nrow(df) > 0) {
-      m <- m |>
-        addCircleMarkers(
-          data = df,
-          lng = ~lon,
-          lat = ~lat,
-          radius = 7,
-          color = "black",
-          weight = 1,
-          fillColor = ~ifelse(
-            is.na(rainfall_in),
-            "#000000",
-            pal(rainfall_in)
-          ),
-          fillOpacity = 0.85,
-          popup = ~paste0(
-            "<strong>", station, "</strong><br>",
-            "Rainfall: ",
-            ifelse(is.na(rainfall_in), "No value", paste0(round(rainfall_in, 2), " in"))
-          )
-        )
-    }
-    
-    m
+  })
+  
+  forecast_values <- reactive({
+    unname(forecast_choices)
   })
   
   observeEvent(input$forecast_prev, {
-    current_index <- match(input$forecast_period, unname(forecast_choices))
-    new_index <- max(1, current_index - 1)
-    
-    updateSliderTextInput(
+    updateSliderInput(
       session,
       "forecast_period",
-      selected = unname(forecast_choices)[new_index]
+      value = max(1, input$forecast_period - 1)
     )
   })
   
   observeEvent(input$forecast_next, {
-    current_index <- match(input$forecast_period, unname(forecast_choices))
-    new_index <- min(length(forecast_choices), current_index + 1)
-    
-    updateSliderTextInput(
+    updateSliderInput(
       session,
       "forecast_period",
-      selected = unname(forecast_choices)[new_index]
+      value = min(nrow(forecast_cache$table), input$forecast_period + 1)
     )
   })
   
   selected_forecast_row <- reactive({
     req(input$forecast_period)
-    
-    forecast_cache$table[
-      forecast_cache$table$slider_value == input$forecast_period,
-    ]
+    forecast_cache$table[input$forecast_period, ]
   })
   
   output$forecast_time_label <- renderText({
