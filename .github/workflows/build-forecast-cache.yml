@@ -63,6 +63,8 @@ jobs:
           mkdir -p cache-repo/cache
           cp main-repo/cache/forecast_cache.rds cache-repo/cache/
           cp main-repo/cache/forecast_qpf_ll.tif cache-repo/cache/
+          cp main-repo/cache/observed_cache.rds cache-repo/cache/
+          cp main-repo/cache/observed_qpe_24h_ll.tif cache-repo/cache/
 
       - name: Commit cache files
         working-directory: cache-repo
@@ -70,7 +72,11 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git add cache/forecast_cache.rds cache/forecast_qpf_ll.tif
+          git add \
+            cache/forecast_cache.rds \
+            cache/forecast_qpf_ll.tif \
+            cache/observed_cache.rds \
+            cache/observed_qpe_24h_ll.tif
 
           if git diff --cached --quiet; then
             echo "No cache changes to commit."
