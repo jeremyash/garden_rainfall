@@ -531,31 +531,22 @@ ui <- fluidPage(
   tabsetPanel(
     
     tabPanel(
-      "Measured Rainfall",
+      "Observed Rainfall",
       
       br(),
       
       fluidRow(
         column(
-          4,
+          6,
           div(
             class = "garden-card",
-            h5("Observed Rainfall"),
+            h5("Garden Rainfall"),
             h3(textOutput("observed_rainfall", inline = TRUE))
           )
         ),
         
         column(
-          4,
-          div(
-            class = "garden-card",
-            h5("Observed Period"),
-            h4("Past 24 hours")
-          )
-        ),
-        
-        column(
-          4,
+          6,
           div(
             class = "garden-card",
             h5("Updated"),
@@ -730,10 +721,12 @@ server <- function(input, output, session) {
   })
   
   output$last_updated <- renderText({
-    
-    format(
-      observed_info()$valid_time_local,
-      "%b %d %H:%M"
+    paste0(
+      format(
+        observed_info()$valid_time_local,
+        "%b %d %H:%M"
+      ),
+      " ET"
     )
   })
   
@@ -763,7 +756,14 @@ server <- function(input, output, session) {
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
         icon = garden_icon,
-        label = GARDEN_NAME
+        label = GARDEN_NAME,
+        popup = paste0(
+          "<b>", GARDEN_NAME, "</b><br>",
+          round(observed_info()$rainfall_in, 2),
+          " inches in past 24 hours<br>",
+          "Updated: ",
+          observed_info()$label
+        )
       ) |>
       
       setView(
