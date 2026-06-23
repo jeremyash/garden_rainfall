@@ -75,21 +75,32 @@ qpf_values <- as.numeric(vals[1, -1])
 # Forecast valid times
 # -----------------------------
 
-valid_times <- terra::time(qpf)
+valid_times_raw <- terra::time(qpf)
 
-if (is.null(valid_times) || all(is.na(valid_times))) {
+bad_times <- is.null(valid_times_raw) ||
+  all(is.na(valid_times_raw)) ||
+  length(unique(valid_times_raw)) <= 1 ||
+  any(lubridate::year(valid_times_raw) < 2020, na.rm = TRUE)
+
+if (bad_times) {
+  
+  message("Bad or missing GRIB valid times detected. Using generated 6-hour forecast times.")
   
   valid_times <- seq(
-    from = floor_date(
-      with_tz(Sys.time(), "UTC"),
+    from = lubridate::ceiling_date(
+      lubridate::with_tz(Sys.time(), "UTC"),
       "6 hours"
     ),
     by = "6 hours",
     length.out = terra::nlyr(qpf)
   )
+  
+} else {
+  
+  valid_times <- valid_times_raw
 }
 
-valid_times_local <- with_tz(
+valid_times_local <- lubridate::with_tz(
   valid_times,
   GARDEN_TZ
 )
@@ -100,6 +111,8 @@ valid_times_local <- with_tz(
 
 qpf_table <- tibble(
   layer = seq_along(qpf_values),
+  
+  slider_value = as.character(seq_along(qpf_values)),
   
   valid_time_utc = valid_times,
   
@@ -113,7 +126,7 @@ qpf_table <- tibble(
   
   slider_label = format(
     valid_times_local,
-    "%a %b %d, %H:%M"
+    "%a %b %d %H:%M"
   )
 )
 
