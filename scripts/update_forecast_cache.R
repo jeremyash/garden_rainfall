@@ -220,3 +220,185 @@ message(cache_tif)
 
 message("Last refresh:")
 message(forecast_cache$last_refresh)
+
+# -----------------------------
+# Observed rainfall: MRMS 24-hour QPE
+# -----------------------------
+
+observed_cache_rds <- "cache/observed_cache.rds"
+observed_cache_tif <- "cache/observed_qpe_24h_ll.tif"
+
+MRMS_BASE_URL <- "https://mrms.ncep.noaa.gov/data/2D/MultiSensor_QPE_24H_Pass2"
+
+download_mrms_latest <- function(hours_back = 12) {
+  
+  now_utc <- lubridate::floor_date(
+    lubridate::with_tz(Sys.time(), "UTC"),
+    "hour"
+  )
+  
+  candidate_times <- now_utc - lubridate::hours(2:hours_back)
+  
+  for (i in seq_along(candidate_times)) {
+    
+    t <- candidate_times[i]
+    
+    stamp <- format(
+      t,
+      format = "%Y%m%d-%H0000",
+      tz = "UTC"
+    )
+    
+    url <- paste0(
+      MRMS_BASE_URL,
+      "/MRMS_MultiSensor_QPE_24H_Pass2_00.00_",
+      stamp,
+      ".grib2.gz"
+    )
+    
+    gz_tmp <- tempfile(fileext = ".grib2.gz")
+    grib_tmp <- tempfile(fileext = ".grib2")
+    
+    message("Trying MRMS: ", url)
+    
+    ok <- tryCatch({
+      download.file(url, gz_tmp, mode = "wb", quiet = TRUE)
+      TRUE
+    }, error = function(e) {
+      FALSE
+    })
+    
+    if (ok && file.exists(gz_tmp) && file.info(gz_tmp)$size > 0) {
+      
+      R.utils::gunzip(
+        gz_tmp,
+        destname = grib_tmp,
+        remove = FALSE,
+        overwrite = TRUE
+      )
+      
+      if (file.exists(grib_tmp) && file.info(grib_tmp)$size > 0) {
+        return(list(
+          file = grib_tmp,
+          valid_time_utc = t,
+          url = url
+        ))
+      }
+    }
+  }
+  
+  stop("No recent MRMS 24-hour QPE file found.")
+}
+
+mrms_dl <- download_mrms_latest()
+
+qpe <- terra::rast(mrms_dl$file)
+
+message("MRMS QPE layers: ", terra::nlyr(qpe))
+message("MRMS units: ", paste(terra::units(qpe), collapse = ", "))
+
+# MRMS QPE is generally millimeters. Convert to inches.
+qpe <- qpe / 25.4
+terra::units(qpe) <- "in"
+
+# -----------------------------
+# Extract observed rainfall at garden
+# -----------------------------
+
+garden_qpe <- terra::project(
+  garden_ll,
+  terra::crs(qpe)
+)
+
+observed_val <- terra::extract(
+  qpe,
+  garden_qpe
+)
+
+observed_rainfall_in <- as.numeric(observed_val[1, 2])
+
+# -----------------------------
+# Crop/mask around garden
+# -----------------------------
+
+qpe_buffer <- terra::buffer(
+  
+  terra::project(
+    garden_ll,
+    "EPSG:3857"
+  ),
+  
+  width =
+    RAINFALL_RADIUS_MILES *
+    FORECAST_MAP_RADIUS_MULTIPLIER *
+    1609.34
+  
+) |>
+  terra::project(
+    terra::crs(qpe)
+  )
+
+qpe_crop <- terra::crop(
+  qpe,
+  qpe_buffer
+)
+
+qpe_mask <- terra::mask(
+  qpe_crop,
+  qpe_buffer
+)
+
+qpe_ll <- terra::project(
+  qpe_mask,
+  "EPSG:4326"
+)
+
+terra::writeRaster(
+  qpe_ll,
+  observed_cache_tif,
+  overwrite = TRUE
+)
+
+observed_cache <- list(
+  
+  qpe_file = observed_cache_tif,
+  
+  table = tibble(
+    product = "MRMS 24-hour QPE",
+    valid_time_utc = mrms_dl$valid_time_utc,
+    valid_time_local = lubridate::with_tz(mrms_dl$valid_time_utc, GARDEN_TZ),
+    rainfall_in = observed_rainfall_in,
+    label = format(
+      lubridate::with_tz(mrms_dl$valid_time_utc, GARDEN_TZ),
+      "%a %b %d %H:%M"
+    ),
+    source_url = mrms_dl$url
+  ),
+  
+  garden = list(
+    name = GARDEN_NAME,
+    lat = GARDEN_LAT,
+    lon = GARDEN_LON,
+    timezone = GARDEN_TZ
+  ),
+  
+  rainfall_radius_miles = RAINFALL_RADIUS_MILES,
+  
+  observed_map_radius_multiplier = FORECAST_MAP_RADIUS_MULTIPLIER,
+  
+  last_refresh = Sys.time()
+)
+
+saveRDS(
+  observed_cache,
+  observed_cache_rds
+)
+
+message("Saved observed rainfall cache:")
+message(observed_cache_rds)
+
+message("Saved observed rainfall raster:")
+message(observed_cache_tif)
+
+message("Observed 24-hour rainfall at garden:")
+message(round(observed_rainfall_in, 2), " in")

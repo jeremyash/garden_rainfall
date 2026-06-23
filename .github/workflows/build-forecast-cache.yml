@@ -52,6 +52,7 @@ jobs:
             any::terra
             any::tidyverse
             any::lubridate
+            any::R.utils
 
       - name: Build forecast cache
         working-directory: main-repo
