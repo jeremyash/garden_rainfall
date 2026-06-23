@@ -95,7 +95,10 @@ rain_labels <- c(
   ">1.00 in"
 )
 
-forecast_choices <- forecast_cache$table$slider_label
+forecast_choices <- setNames(
+  forecast_cache$table$slider_value,
+  forecast_cache$table$slider_label
+)
 
 card_style <- "
   background:#f8f9fa;
@@ -183,6 +186,44 @@ get_garden_rainfall <- function(hours = 24) {
   }) |>
     filter(!is.na(lat), !is.na(lon)) |>
     arrange(distance_mi)
+}
+
+forecast_legend_html <- function() {
+  
+  paste0(
+    "
+    <div style='
+      background:white;
+      padding:8px 10px;
+      border-radius:8px;
+      box-shadow:0 1px 5px rgba(0,0,0,0.35);
+      font-size:12px;
+      line-height:1.35;
+    '>
+    <strong>Forecast Rainfall</strong>
+    ",
+    
+    paste0(
+      lapply(seq_along(rain_labels), function(i) {
+        paste0(
+          "
+          <div style='display:flex;align-items:center;gap:5px;margin-top:4px;'>
+            <div style='
+              width:14px;
+              height:14px;
+              border:1px solid #666;
+              background:", rain_colors[i], ";
+            '></div>
+            <span>", rain_labels[i], "</span>
+          </div>
+          "
+        )
+      }),
+      collapse = ""
+    ),
+    
+    "</div>"
+  )
 }
 
 # -----------------------------
@@ -551,8 +592,8 @@ ui <- fluidPage(
               class = "garden-map-control",
               style = "
                 position:absolute;
-                top:80px;
-                left:10px;
+                top:10px;
+                right:10px;
                 z-index:500;
                 background:white;
                 padding:10px;
@@ -582,35 +623,35 @@ ui <- fluidPage(
             div(
               class = "garden-map-legend",
               style = "
-    position:absolute;
-    top:10px;
-    right:10px;
-    z-index:500;
-    background:white;
-    padding:8px 10px;
-    border-radius:8px;
-    box-shadow:0 1px 5px rgba(0,0,0,0.35);
-    font-size:12px;
-    line-height:1.35;
-  ",
-              
+                position:absolute;
+                bottom:18px;
+                left:10px;
+                z-index:500;
+                background:white;
+                padding:8px 10px;
+                border-radius:8px;
+                box-shadow:0 1px 5px rgba(0,0,0,0.35);
+                font-size:12px;
+                line-height:1.35;
+              ",
+                          
               tags$strong(textOutput("legend_title", inline = TRUE)),
               
               lapply(seq_along(rain_labels), function(i) {
                 div(
                   style = "
-        display:flex;
-        align-items:center;
-        gap:5px;
-        margin-top:4px;
-      ",
+                    display:flex;
+                    align-items:center;
+                    gap:5px;
+                    margin-top:4px;
+                  ",
                   div(
                     style = paste0(
                       "
-          width:14px;
-          height:14px;
-          border:1px solid #666;
-          background:",
+                        width:14px;
+                        height:14px;
+                        border:1px solid #666;
+                        background:",
                       rain_colors[i],
                       ";
           "
@@ -803,26 +844,24 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$forecast_prev, {
-    
-    current_index <- match(input$forecast_period, forecast_choices)
+    current_index <- match(input$forecast_period, unname(forecast_choices))
     new_index <- max(1, current_index - 1)
     
     updateSliderTextInput(
       session,
       "forecast_period",
-      selected = forecast_choices[new_index]
+      selected = unname(forecast_choices)[new_index]
     )
   })
   
   observeEvent(input$forecast_next, {
-    
-    current_index <- match(input$forecast_period, forecast_choices)
+    current_index <- match(input$forecast_period, unname(forecast_choices))
     new_index <- min(length(forecast_choices), current_index + 1)
     
     updateSliderTextInput(
       session,
       "forecast_period",
-      selected = forecast_choices[new_index]
+      selected = unname(forecast_choices)[new_index]
     )
   })
   
@@ -830,7 +869,7 @@ server <- function(input, output, session) {
     req(input$forecast_period)
     
     forecast_cache$table[
-      forecast_cache$table$slider_label == input$forecast_period,
+      forecast_cache$table$slider_value == input$forecast_period,
     ]
   })
   
@@ -851,26 +890,8 @@ server <- function(input, output, session) {
   
   output$forecast_map <- renderLeaflet({
     
-    row <- selected_forecast_row()
-    lyr <- row$layer
-    qpf_layer <- forecast_qpf[[lyr]]
-    
-    rain_pal <- colorBin(
-      palette = rain_colors,
-      bins = rain_bins,
-      domain = rain_bins,
-      na.color = "transparent",
-      right = TRUE
-    )
-    
     leaflet() |>
       addProviderTiles(providers$CartoDB.Voyager) |>
-      addRasterImage(
-        qpf_layer,
-        colors = rain_pal,
-        opacity = 0.7,
-        project = FALSE
-      ) |>
       addAwesomeMarkers(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
@@ -887,62 +908,37 @@ server <- function(input, output, session) {
         dashArray = "5,5"
       ) |>
       addControl(
-        html = paste0(
-          "
-    <div style='
-      background:white;
-      padding:8px 10px;
-      border-radius:8px;
-      box-shadow:0 1px 5px rgba(0,0,0,0.35);
-      font-size:12px;
-      line-height:1.35;
-    '>
-    
-    <strong>6-hr Forecast Rainfall</strong>
-    ",
-          
-          paste0(
-            lapply(seq_along(rain_labels), function(i) {
-              paste0(
-                "
-          <div style='
-            display:flex;
-            align-items:center;
-            gap:5px;
-            margin-top:4px;
-          '>
-          
-          <div style='
-            width:14px;
-            height:14px;
-            border:1px solid #666;
-            background:",
-                rain_colors[i],
-                ";
-          '></div>
-          
-          <span>",
-                rain_labels[i],
-                "</span>
-          
-          </div>
-          "
-              )
-            }),
-            collapse = ""
-          ),
-          
-          "
-    </div>
-    "
-        ),
-        
-        position = "topright"
+        html = forecast_legend_html(),
+        position = "bottomleft"
       ) |>
       setView(
         lng = GARDEN_LON,
         lat = GARDEN_LAT,
         zoom = 11
+      )
+  })
+  
+  observeEvent(input$forecast_period, {
+    
+    row <- selected_forecast_row()
+    lyr <- row$layer
+    qpf_layer <- forecast_qpf[[lyr]]
+    
+    rain_pal <- colorBin(
+      palette = rain_colors,
+      bins = rain_bins,
+      domain = rain_bins,
+      na.color = "transparent",
+      right = TRUE
+    )
+    
+    leafletProxy("forecast_map") |>
+      clearImages() |>
+      addRasterImage(
+        qpf_layer,
+        colors = rain_pal,
+        opacity = 0.7,
+        project = FALSE
       )
   })
 }
