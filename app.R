@@ -83,10 +83,10 @@ download_observed_cache <- function() {
   )
 }
 
-remote_observed <- download_observed_cache()
-
-observed_cache <- remote_observed$cache
-observed_qpe <- remote_observed$qpe
+# remote_observed <- download_observed_cache()
+# 
+# observed_cache <- remote_observed$cache
+# observed_qpe <- remote_observed$qpe
 
 forecast_cache <- remote_forecast$cache
 forecast_qpf <- remote_forecast$qpf
@@ -549,7 +549,7 @@ ui <- fluidPage(
           6,
           div(
             class = "garden-card",
-            h5("Updated"),
+            h5("Observation Time"),
             h4(textOutput("last_updated", inline = TRUE))
           )
         )
@@ -708,6 +708,21 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   
+  observed_data <- reactive({
+    
+    invalidateLater(60 * 60 * 1000, session) # hourly
+    
+    download_observed_cache()
+  })
+  
+  observed_info <- reactive({
+    observed_data()$cache$table
+  })
+  
+  observed_raster <- reactive({
+    observed_data()$qpe
+  })
+  
   observed_info <- reactive({
     observed_cache$table
   })
@@ -746,7 +761,7 @@ server <- function(input, output, session) {
       ) |>
       
       addRasterImage(
-        observed_qpe,
+        observed_raster(),
         colors = pal,
         opacity = 0.75,
         project = FALSE
