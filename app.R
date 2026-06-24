@@ -57,11 +57,36 @@ remote_forecast <- download_remote_cache()
 
 download_observed_cache <- function() {
   
+  rds_tmp <- tempfile(fileext = ".rds")
+  tif_tmp <- tempfile(fileext = ".tif")
+  
+  remote_rds <- paste0(REMOTE_OBSERVED_RDS, "?v=", as.numeric(Sys.time()))
+  remote_tif <- paste0(REMOTE_OBSERVED_TIF, "?v=", as.numeric(Sys.time()))
+  
+  remote_ok <- tryCatch({
+    download.file(remote_rds, rds_tmp, mode = "wb", quiet = TRUE)
+    download.file(remote_tif, tif_tmp, mode = "wb", quiet = TRUE)
+    TRUE
+  }, error = function(e) {
+    FALSE
+  })
+  
+  if (remote_ok) {
+    message("Using remote observed rainfall cache.")
+    
+    return(
+      list(
+        cache = readRDS(rds_tmp),
+        qpe = terra::rast(tif_tmp)
+      )
+    )
+  }
+  
   local_rds <- "cache/observed_cache.rds"
   local_tif <- "cache/observed_qpe_24h_ll.tif"
   
   if (file.exists(local_rds) && file.exists(local_tif)) {
-    message("Using local observed rainfall cache.")
+    message("Using local observed rainfall cache fallback.")
     
     return(
       list(
@@ -71,16 +96,7 @@ download_observed_cache <- function() {
     )
   }
   
-  rds_tmp <- tempfile(fileext = ".rds")
-  tif_tmp <- tempfile(fileext = ".tif")
-  
-  download.file(REMOTE_OBSERVED_RDS, rds_tmp, mode = "wb", quiet = TRUE)
-  download.file(REMOTE_OBSERVED_TIF, tif_tmp, mode = "wb", quiet = TRUE)
-  
-  list(
-    cache = readRDS(rds_tmp),
-    qpe = terra::rast(tif_tmp)
-  )
+  stop("Could not load observed rainfall cache from remote or local files.")
 }
 
 # remote_observed <- download_observed_cache()
@@ -723,9 +739,9 @@ server <- function(input, output, session) {
     observed_data()$qpe
   })
   
-  observed_info <- reactive({
-    observed_cache$table
-  })
+  # observed_info <- reactive({
+  #   observed_cache$table
+  # })
   
   output$legend_title <- renderText({
     "24-hr observed rainfall"
